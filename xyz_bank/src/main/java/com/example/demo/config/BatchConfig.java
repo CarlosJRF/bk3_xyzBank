@@ -9,6 +9,7 @@ import org.springframework.batch.core.job.builder.JobBuilder;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.Step;
 import org.springframework.batch.core.step.builder.StepBuilder;
+import org.springframework.batch.infrastructure.item.database.BeanPropertyItemSqlParameterSourceProvider;
 import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWriter;
 import org.springframework.batch.infrastructure.item.database.builder.JdbcBatchItemWriterBuilder;
 import org.springframework.batch.infrastructure.item.file.FlatFileItemReader;
@@ -60,11 +61,13 @@ public class BatchConfig {
     }
 
     @Bean
-    public JdbcBatchItemWriter<TransactionDTO> TransactionItemWriter(DataSource dataSource){
-        return new JdbcBatchItemWriterBuilder<TransactionDTO>()
-            .dataSource(dataSource)
-            .sql("INSER INTO transaction (id, transaction_date, amount, operation_type) VALUES (:id, transactionDate, amount, type)").dataSource(dataSource).build();
-    }
+public JdbcBatchItemWriter<TransactionDTO> TransactionItemWriter(DataSource dataSource){
+    return new JdbcBatchItemWriterBuilder<TransactionDTO>()
+        .itemSqlParameterSourceProvider(new BeanPropertyItemSqlParameterSourceProvider<>())
+        .sql("INSERT INTO transaction_report (transaction_date, amount, operation_type) VALUES (:transactionDate, :amount, :type)")
+        .dataSource(dataSource)
+        .build();
+}
     
     @Bean
     public Step transactionStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
