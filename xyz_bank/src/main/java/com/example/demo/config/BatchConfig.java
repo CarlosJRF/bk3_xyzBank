@@ -11,9 +11,7 @@ import org.springframework.batch.core.step.Step;
 import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.infrastructure.item.database.BeanPropertyItemSqlParameterSourceProvider;
 import org.springframework.batch.infrastructure.item.database.JdbcBatchItemWriter;
-import org.springframework.batch.infrastructure.item.database.JdbcCursorItemReader;
 import org.springframework.batch.infrastructure.item.database.builder.JdbcBatchItemWriterBuilder;
-import org.springframework.batch.infrastructure.item.database.builder.JdbcCursorItemReaderBuilder;
 import org.springframework.batch.infrastructure.item.file.FlatFileItemReader;
 import org.springframework.batch.infrastructure.item.file.builder.FlatFileItemReaderBuilder;
 import org.springframework.batch.infrastructure.item.file.mapping.BeanWrapperFieldSetMapper;
@@ -24,12 +22,13 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.support.DefaultConversionService;
 import org.springframework.core.io.Resource;
-import org.springframework.jdbc.core.BeanPropertyRowMapper;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import com.example.demo.DTOs.AccountDTO;
+import com.example.demo.DTOs.StatementDTO;
 import com.example.demo.DTOs.TransactionDTO;
 import com.example.demo.processor.InterestProcessor;
+import com.example.demo.processor.StatementProcessor;
 import com.example.demo.processor.TransactionProcessor;
 
 
@@ -43,6 +42,12 @@ public class BatchConfig {
     //ubicacion del archivo para transacciones
     @Value("file:/home/carlos/Proyectos/bk_3/xyz_bank/transacciones.csv")
     private Resource transactionCSV;
+    //Ubicacion del archivo para lectura y calculo de intereses
+    @Value("file:/home/carlos/Proyectos/bk_3/xyz_bank/intereses.csv")
+    private Resource interestCSV;
+    //Ubicacion del archivo CSV para estados de cuenta
+    @Value("file:/home/carlos/Proyectos/bk_3/xyz_bank/cuentas_anuales.csv")
+    private Resource statementCSV;
 
 
     /*Cofiguracion de batch encargado de la lectura y escritura de los datos relacionados con el job de transacciones */
@@ -95,43 +100,119 @@ public class BatchConfig {
                 .build();
     }
     //trabajo de registro de transacciones
-    @Bean
+
+    /* @Bean
     public Job transactionJob(JobRepository jobRepository, Step transactionStep){
         return new JobBuilder("transactionJob" ,jobRepository).start(transactionStep).build();
+    }*/
+    
+
+    @Bean
+    public Job transactionJob(JobRepository jobRepository, 
+                              Step transactionStep, 
+                              Step interestStep, 
+                              Step statementStep) {
+        return new JobBuilder("transactionJob", jobRepository)
+                .start(transactionStep) // Fase 1: Carga y validación del CSV
+                .next(interestStep)     // Fase 2: Cálculo de intereses mensuales
+                .next(statementStep)    // Fase 3: Generación del CSV de auditoría anual
+                .build();
     }
 
     /*Componentes para la lectura y escritura del trabajo de calculo de interes de las cuentas*/
 
     
     @Bean
-    public JdbcCursorItemReader<AccountDTO> accountItemReader(DataSource dataSource) {
-        return new JdbcCursorItemReaderBuilder<AccountDTO>()
-                .name("accountItemReader")
-                .dataSource(dataSource)
-                .sql("SELECT id, account_number, account_type, balance, last_interest_date FROM account")
-                .rowMapper(new BeanPropertyRowMapper<>(AccountDTO.class))
+    public FlatFileItemReader<AccountDTO> interestItemReader() {
+        DelimitedLineTokenizer tokenizer = new DelimitedLineTokenizer();
+        tokenizer.setNames("id", "clientName", "balance", "age", "accountType"); 
+
+        BeanWrapperFieldSetMapper<AccountDTO> fieldSetMapper = new BeanWrapperFieldSetMapper<>();
+        fieldSetMapper.setTargetType(AccountDTO.class);
+
+        DefaultLineMapper<AccountDTO> lineMapper = new DefaultLineMapper<>();
+        lineMapper.setLineTokenizer(tokenizer);
+        lineMapper.setFieldSetMapper(fieldSetMapper);
+
+        return new FlatFileItemReaderBuilder<AccountDTO>()
+                .name("interestItemReader")
+                .resource(interestCSV)
+                .linesToSkip(1) // encabezado
+                .lineMapper(lineMapper)
                 .build();
     }
 
     @Bean
-    public JdbcBatchItemWriter<AccountDTO> accountItemWriter(DataSource dataSource) {
+    public JdbcBatchItemWriter<AccountDTO> interestItemWriter(DataSource dataSource) {
         return new JdbcBatchItemWriterBuilder<AccountDTO>()
                 .itemSqlParameterSourceProvider(new BeanPropertyItemSqlParameterSourceProvider<>())
-                .sql("UPDATE account SET balance = :balance, last_interest_date = :lastInterestDate WHERE id = :id")
+                // El campo id se omite en el INSERT para que PostgreSQL use el autoincremento (SERIAL)
+                .sql("INSERT INTO account (client_name, balance, age, account_type) " +
+                     "VALUES (:clientName, :balance, :age, :accountType)")
+                .dataSource(dataSource)
+                .build();
+    }
+
+   @Bean
+    public Step interestStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
+                             FlatFileItemReader<AccountDTO> interestItemReader,
+                             InterestProcessor interestProcessor,
+                             JdbcBatchItemWriter<AccountDTO> interestItemWriter) {
+        return new StepBuilder("interestStep", jobRepository)
+                .<AccountDTO, AccountDTO>chunk(CHUNK_SIZE, transactionManager)
+                .reader(interestItemReader)
+                .processor(interestProcessor)
+                .writer(interestItemWriter)
+                .build();
+    }
+
+    /*Componentes para la lectura y escritura del trabajo de registro de estado de las cuentas*/
+
+    @Bean
+    public FlatFileItemReader<StatementDTO> statementItemReader() {
+        DelimitedLineTokenizer tokenizer = new DelimitedLineTokenizer();
+        tokenizer.setNames("accountId", "statementDate", "transaction", "amount", "description");
+
+        BeanWrapperFieldSetMapper<StatementDTO> fieldSetMapper = new BeanWrapperFieldSetMapper<>();
+        fieldSetMapper.setTargetType(StatementDTO.class);
+
+        // Conversor de Fechas de String (CSV) a LocalDate (DTO)
+        DefaultConversionService conversionService = new DefaultConversionService();
+        conversionService.addConverter(String.class, LocalDate.class, LocalDate::parse);
+        fieldSetMapper.setConversionService(conversionService);
+
+        DefaultLineMapper<StatementDTO> lineMapper = new DefaultLineMapper<>();
+        lineMapper.setLineTokenizer(tokenizer);
+        lineMapper.setFieldSetMapper(fieldSetMapper);
+
+        return new FlatFileItemReaderBuilder<StatementDTO>()
+                .name("statementItemReader")
+                .resource(statementCSV)
+                .linesToSkip(1) // Salta el encabezado
+                .lineMapper(lineMapper)
+                .build();
+    }
+
+    @Bean
+    public JdbcBatchItemWriter<StatementDTO> statementItemWriter(DataSource dataSource) {
+        return new JdbcBatchItemWriterBuilder<StatementDTO>()
+                .itemSqlParameterSourceProvider(new BeanPropertyItemSqlParameterSourceProvider<>())
+                .sql("INSERT INTO annual_statement (account_id, statement_date, transaction, amount, description) " +
+                     "VALUES (:accountId, :statementDate, :transaction, :amount, :description)")
                 .dataSource(dataSource)
                 .build();
     }
 
     @Bean
-    public Step interestStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
-                             JdbcCursorItemReader<AccountDTO> accountItemReader,
-                             InterestProcessor interestProcessor,
-                             JdbcBatchItemWriter<AccountDTO> accountItemWriter) {
-        return new StepBuilder("interestStep", jobRepository)
-                .<AccountDTO, AccountDTO>chunk(CHUNK_SIZE, transactionManager)
-                .reader(accountItemReader)
-                .processor(interestProcessor)
-                .writer(accountItemWriter)
+    public Step statementStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
+                              FlatFileItemReader<StatementDTO> statementItemReader,
+                              StatementProcessor statementProcessor,
+                              JdbcBatchItemWriter<StatementDTO> statementItemWriter) {
+        return new StepBuilder("statementStep", jobRepository)
+                .<StatementDTO, StatementDTO>chunk(CHUNK_SIZE, transactionManager)
+                .reader(statementItemReader)
+                .processor(statementProcessor)
+                .writer(statementItemWriter)
                 .build();
     }
 

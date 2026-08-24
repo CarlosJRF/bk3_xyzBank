@@ -35,10 +35,6 @@ public class InterestProcessor implements ItemProcessor<AccountDTO, AccountDTO>{
             account.setBalance(currentBalance.add(interest));
         }
 
-
-        //actualizacion de fecha en caso de aplicar interes
-        account.setLastInterestDate(LocalDate.now());
-
         return account;
 
     }

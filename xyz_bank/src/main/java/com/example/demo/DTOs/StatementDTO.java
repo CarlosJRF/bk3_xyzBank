@@ -6,13 +6,9 @@ import lombok.Data;
 
 @Data
 public class StatementDTO {
-
-    private int id;
     private int accountId;
-    private int statementYear;
-    private BigDecimal totalIn;
-    private BigDecimal totalOut;
-    private BigDecimal finalBalance;
-    private LocalDate createdAt;
-
+    private LocalDate statementDate;
+    private String transaction;
+    private BigDecimal amount;
+    private String description;
 }
