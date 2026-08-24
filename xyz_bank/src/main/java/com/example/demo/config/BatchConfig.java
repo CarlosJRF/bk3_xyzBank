@@ -40,13 +40,13 @@ public class BatchConfig {
     private final static int CHUNK_SIZE = 10;
 
     //ubicacion del archivo para transacciones
-    @Value("file:/home/carlos/Proyectos/bk_3/xyz_bank/transacciones.csv")
+    @Value("file:/home/carlos/Proyectos/bk_3/xyz_bank/xyz_bank/transacciones.csv")
     private Resource transactionCSV;
     //Ubicacion del archivo para lectura y calculo de intereses
-    @Value("file:/home/carlos/Proyectos/bk_3/xyz_bank/intereses.csv")
+    @Value("file:/home/carlos/Proyectos/bk_3/xyz_bank/xyz_bank/intereses.csv")
     private Resource interestCSV;
     //Ubicacion del archivo CSV para estados de cuenta
-    @Value("file:/home/carlos/Proyectos/bk_3/xyz_bank/cuentas_anuales.csv")
+    @Value("file:/home/carlos/Proyectos/bk_3/xyz_bank/xyz_bank/cuentas_anuales.csv")
     private Resource statementCSV;
 
 
