@@ -102,6 +102,7 @@ public class BatchConfig {
 
     /*Componentes para la lectura y escritura del trabajo de calculo de interes de las cuentas*/
 
+    
     @Bean
     public JdbcCursorItemReader<AccountDTO> accountItemReader(DataSource dataSource) {
         return new JdbcCursorItemReaderBuilder<AccountDTO>()
