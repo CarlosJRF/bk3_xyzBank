@@ -37,7 +37,7 @@ public class BatchConfig {
 
 
     //corte para el commit de registro cada 10
-    private final static int CHUNK_SIZE = 10;
+    private final static int CHUNK_SIZE = 5;
 
     //ubicacion del archivo para transacciones
     @Value("file:/home/carlos/Proyectos/bk_3/xyz_bank/xyz_bank/transacciones.csv")
