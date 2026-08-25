@@ -23,10 +23,13 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.support.DefaultConversionService;
 import org.springframework.core.io.Resource;
 import org.springframework.transaction.PlatformTransactionManager;
+import java.lang.Exception;
 
 import com.example.demo.DTOs.AccountDTO;
 import com.example.demo.DTOs.StatementDTO;
 import com.example.demo.DTOs.TransactionDTO;
+import com.example.demo.listener.CustomSkipListener;
+import com.example.demo.policies.CustomSkipPolicies;
 import com.example.demo.processor.InterestProcessor;
 import com.example.demo.processor.StatementProcessor;
 import com.example.demo.processor.TransactionProcessor;
@@ -91,21 +94,18 @@ public class BatchConfig {
     @Bean
     public Step transactionStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
             FlatFileItemReader<TransactionDTO> sendTransactionItemReader, TransactionProcessor itemOut,
-            JdbcBatchItemWriter<TransactionDTO> TransactionItemWriter) {
+            JdbcBatchItemWriter<TransactionDTO> TransactionItemWriter, CustomSkipListener skipListener, CustomSkipPolicies skipPolicies) {
         return new StepBuilder("transactionStep", jobRepository)
                 .<TransactionDTO, TransactionDTO>chunk(CHUNK_SIZE, transactionManager)
                 .reader(sendTransactionItemReader)
                 .processor(itemOut)
                 .writer(TransactionItemWriter)
+                .faultTolerant()
+                .skipPolicy(skipPolicies)
+                .listener(skipListener)
                 .build();
     }
-    //trabajo de registro de transacciones
-
-    /* @Bean
-    public Job transactionJob(JobRepository jobRepository, Step transactionStep){
-        return new JobBuilder("transactionJob" ,jobRepository).start(transactionStep).build();
-    }*/
-    
+    //trabajo de multiples steps: Step 1 -> Step 2 -> Step 3
 
     @Bean
     public Job transactionJob(JobRepository jobRepository, 
