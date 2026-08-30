@@ -43,13 +43,13 @@ public class BatchConfig {
     private final static int CHUNK_SIZE = 5;
 
     //ubicacion del archivo para transacciones
-    @Value("file:/home/carlos/Proyectos/bk_3/xyz_bank/xyz_bank/transacciones.csv")
+    @Value("classpath:transacciones.csv")
     private Resource transactionCSV;
-    //Ubicacion del archivo para lectura y calculo de intereses
-    @Value("file:/home/carlos/Proyectos/bk_3/xyz_bank/xyz_bank/intereses.csv")
+
+    @Value("classpath:intereses.csv")
     private Resource interestCSV;
-    //Ubicacion del archivo CSV para estados de cuenta
-    @Value("file:/home/carlos/Proyectos/bk_3/xyz_bank/xyz_bank/cuentas_anuales.csv")
+
+    @Value("classpath:cuentas_anuales.csv")
     private Resource statementCSV;
 
 
@@ -107,18 +107,29 @@ public class BatchConfig {
     }
     //trabajo de multiples steps: Step 1 -> Step 2 -> Step 3
 
+    // Job 1: Reporte de Transacciones
     @Bean
-    public Job transactionJob(JobRepository jobRepository, 
-                              Step transactionStep, 
-                              Step interestStep, 
-                              Step statementStep) {
+    public Job transactionJob(JobRepository jobRepository, Step transactionStep) {
         return new JobBuilder("transactionJob", jobRepository)
-                .start(transactionStep) // Fase 1: Carga y validación del CSV
-                .next(interestStep)     // Fase 2: Cálculo de intereses mensuales
-                .next(statementStep)    // Fase 3: Generación del CSV de auditoría anual
+                .start(transactionStep) 
                 .build();
     }
 
+    // Job 2: Cálculo de Intereses Mensuales
+    @Bean
+    public Job interestJob(JobRepository jobRepository, Step interestStep) {
+        return new JobBuilder("interestJob", jobRepository)
+                .start(interestStep)
+                .build();
+    }
+
+    // Job 3: Generación de Estados de Cuenta Anuales
+    @Bean
+    public Job statementJob(JobRepository jobRepository, Step statementStep) {
+        return new JobBuilder("statementJob", jobRepository)
+                .start(statementStep)
+                .build();
+    }
     /*Componentes para la lectura y escritura del trabajo de calculo de interes de las cuentas*/
 
     
