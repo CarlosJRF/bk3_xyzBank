@@ -1,12 +1,15 @@
 package com.example.demo.processor;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import org.springframework.batch.infrastructure.item.ItemProcessor;
 import org.springframework.stereotype.Component;
 import com.example.demo.DTOs.AccountDTO;
 
-
+/**
+ * Procesador de lógica de negocio para el cálculo y aplicación de tasas de interés.
+ * Funciona como el componente de transformación en el pipeline ETL de Spring Batch, 
+ * operando de forma individual sobre cada cuenta antes de que sea enviada al ItemWriter.
+ */
 @Component
 public class InterestProcessor implements ItemProcessor<AccountDTO, AccountDTO>{
 
@@ -21,7 +24,7 @@ public class InterestProcessor implements ItemProcessor<AccountDTO, AccountDTO>{
         if (account.getBalance() == null) {
             return null; // Descarta la cuenta si no tiene saldo válido
         }
-        
+
         BigDecimal currentBalance = account.getBalance();
 
         //Asignacion de la tasa utilizando switch

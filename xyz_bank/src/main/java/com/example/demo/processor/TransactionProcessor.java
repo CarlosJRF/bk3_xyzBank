@@ -5,6 +5,14 @@ import org.springframework.stereotype.Component;
 
 import com.example.demo.DTOs.TransactionDTO;
 
+
+/**
+ * Procesador de lógica de negocio encargado de validar y filtrar las transacciones.
+ * Actúa como un componente de validación intermedio en el flujo de Spring Batch, 
+ * asegurando que solo los registros que cumplen con las reglas de integridad 
+ * financiera lleguen a la fase de escritura.
+ */
+
 @Component
 public class TransactionProcessor implements ItemProcessor<TransactionDTO, TransactionDTO> {
 
