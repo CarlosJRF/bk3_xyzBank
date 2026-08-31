@@ -39,6 +39,27 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import org.springframework.core.convert.converter.Converter;
 
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+import org.springframework.batch.core.launch.JobLauncher;
+import org.springframework.batch.core.launch.JobOperator;
+import org.springframework.batch.core.launch.support.TaskExecutorJobLauncher;
+import org.springframework.core.task.TaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
+
+import org.springframework.batch.core.job.builder.FlowBuilder;
+import org.springframework.batch.core.job.flow.Flow;
+import org.springframework.batch.core.step.job.DefaultJobParametersExtractor;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.batch.core.launch.JobLauncher;
+
+import org.springframework.dao.CannotAcquireLockException;
+import org.springframework.dao.DeadlockLoserDataAccessException;
+
+import org.springframework.batch.infrastructure.item.ItemStreamReader;
+import org.springframework.batch.infrastructure.item.support.SynchronizedItemStreamReader;
+import org.springframework.batch.infrastructure.item.support.builder.SynchronizedItemStreamReaderBuilder;
+
 
 @Configuration
 public class BatchConfig {
@@ -95,19 +116,33 @@ public class BatchConfig {
 }
     //Paso para el trabajo de transacciones
     @Bean
-    public Step transactionStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
-            FlatFileItemReader<TransactionDTO> sendTransactionItemReader, TransactionProcessor itemOut,
-            JdbcBatchItemWriter<TransactionDTO> TransactionItemWriter, CustomSkipListener skipListener, CustomSkipPolicies skipPolicies) {
-        return new StepBuilder("transactionStep", jobRepository)
-                .<TransactionDTO, TransactionDTO>chunk(CHUNK_SIZE, transactionManager)
-                .reader(sendTransactionItemReader)
-                .processor(itemOut)
-                .writer(TransactionItemWriter)
-                .faultTolerant()
-                .skipPolicy(skipPolicies)
-                .listener(skipListener)
-                .build();
-    }
+public Step transactionStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
+                            FlatFileItemReader<TransactionDTO> sendTransactionItemReader, TransactionProcessor itemOut,
+                            JdbcBatchItemWriter<TransactionDTO> transactionItemWriter, CustomSkipListener skipListener, CustomSkipPolicies skipPolicies) {
+    return new StepBuilder("transactionStep", jobRepository)
+            .<TransactionDTO, TransactionDTO>chunk(CHUNK_SIZE, transactionManager)
+            
+            // 1. Sincronización del Lector (Evita colisiones de memoria)
+            .reader(new SynchronizedItemStreamReaderBuilder<TransactionDTO>()
+                    .delegate(sendTransactionItemReader)
+                    .build())
+            .processor(itemOut)
+            .writer(transactionItemWriter)
+            
+            // 2. Orquestación Multi-hilo
+            .taskExecutor(taskExecutor())
+            
+            // 3. Resiliencia y Saltos
+            .faultTolerant()
+            .skipPolicy(skipPolicies)
+            .listener(skipListener)
+            
+            // 4. Reintentos ante bloqueos concurrentes en PostgreSQL
+            .retryLimit(3)
+            .retry(CannotAcquireLockException.class)
+            .retry(DeadlockLoserDataAccessException.class)
+            .build();
+}
     //trabajo de multiples steps: Step 1 -> Step 2 -> Step 3
 
     // Job 1: Reporte de Transacciones
@@ -172,17 +207,34 @@ public class BatchConfig {
     }
 
    @Bean
-    public Step interestStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
-                             FlatFileItemReader<AccountDTO> interestItemReader,
-                             InterestProcessor interestProcessor,
-                             JdbcBatchItemWriter<AccountDTO> interestItemWriter) {
-        return new StepBuilder("interestStep", jobRepository)
-                .<AccountDTO, AccountDTO>chunk(CHUNK_SIZE, transactionManager)
-                .reader(interestItemReader)
-                .processor(interestProcessor)
-                .writer(interestItemWriter)
-                .build();
-    }
+public Step interestStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
+                         FlatFileItemReader<AccountDTO> interestItemReader,
+                         InterestProcessor interestProcessor,
+                         JdbcBatchItemWriter<AccountDTO> interestItemWriter, CustomSkipListener skipListener, CustomSkipPolicies skipPolicies) {
+    return new StepBuilder("interestStep", jobRepository)
+            .<AccountDTO, AccountDTO>chunk(CHUNK_SIZE, transactionManager)
+            
+            // 1. Sincronización del Lector
+            .reader(new SynchronizedItemStreamReaderBuilder<AccountDTO>()
+                    .delegate(interestItemReader)
+                    .build())
+            .processor(interestProcessor)
+            .writer(interestItemWriter)
+            
+            // 2. Orquestación Multi-hilo
+            .taskExecutor(taskExecutor())
+            
+            // 3. Resiliencia y Saltos
+            .faultTolerant()
+            .skipPolicy(skipPolicies)
+            .listener(skipListener)
+            
+            // 4. Reintentos ante bloqueos concurrentes en PostgreSQL
+            .retryLimit(3)
+            .retry(CannotAcquireLockException.class)
+            .retry(DeadlockLoserDataAccessException.class)
+            .build();
+}
 
     /*Componentes para la lectura y escritura del trabajo de registro de estado de las cuentas*/
 
@@ -238,17 +290,34 @@ fieldSetMapper.setConversionService(conversionService);
     }
 
     @Bean
-    public Step statementStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
-                              FlatFileItemReader<StatementDTO> statementItemReader,
-                              StatementProcessor statementProcessor,
-                              JdbcBatchItemWriter<StatementDTO> statementItemWriter) {
-        return new StepBuilder("statementStep", jobRepository)
-                .<StatementDTO, StatementDTO>chunk(CHUNK_SIZE, transactionManager)
-                .reader(statementItemReader)
-                .processor(statementProcessor)
-                .writer(statementItemWriter)
-                .build();
-    }
+public Step statementStep(JobRepository jobRepository, PlatformTransactionManager transactionManager,
+                          FlatFileItemReader<StatementDTO> statementItemReader,
+                          StatementProcessor statementProcessor,
+                          JdbcBatchItemWriter<StatementDTO> statementItemWriter, CustomSkipListener skipListener, CustomSkipPolicies skipPolicies) {
+    return new StepBuilder("statementStep", jobRepository)
+            .<StatementDTO, StatementDTO>chunk(CHUNK_SIZE, transactionManager)
+            
+            // 1. Sincronización del Lector
+            .reader(new SynchronizedItemStreamReaderBuilder<StatementDTO>()
+                    .delegate(statementItemReader)
+                    .build())
+            .processor(statementProcessor)
+            .writer(statementItemWriter)
+            
+            // 2. Orquestación Multi-hilo
+            .taskExecutor(taskExecutor())
+            
+            // 3. Resiliencia y Saltos
+            .faultTolerant()
+            .skipPolicy(skipPolicies)
+            .listener(skipListener)
+            
+            // 4. Reintentos ante bloqueos concurrentes en PostgreSQL
+            .retryLimit(3)
+            .retry(CannotAcquireLockException.class)
+            .retry(DeadlockLoserDataAccessException.class)
+            .build();
+}
 
     // Método centralizado para manejar datos sucios en todos los CSV
     private DefaultConversionService createConversionService() {
@@ -290,6 +359,78 @@ fieldSetMapper.setConversionService(conversionService);
         });
 
         return conversionService;
+    }
+
+    /*Integrando TaskExecutor para aplicar metodo de procesamiento multi hilos */
+
+    @Bean
+    public TaskExecutor taskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(10); // Hilos base activos
+        executor.setMaxPoolSize(20);  // Límite máximo de hilos paralelos
+        executor.setQueueCapacity(50); // Capacidad de espera
+        executor.setThreadNamePrefix("BatchThread-");
+        executor.setAllowCoreThreadTimeOut(true);
+        executor.initialize();
+        return executor;
+    }
+
+
+    /* ----------------------------------------------------------------------
+       SECCIÓN: ORQUESTACIÓN NATIVA CON JOB MAESTRO Y FLUJOS PARALELOS
+       ---------------------------------------------------------------------- */
+
+    // 1. Convertimos tus 3 Jobs independientes en "JobSteps"
+    @Bean
+    public Step transactionJobStep(JobRepository jobRepository, JobOperator jobOperator, @Qualifier("transactionJob") Job transactionJob) {
+        return new StepBuilder("transactionJobStep", jobRepository)
+                .job(transactionJob)
+                .operator(jobOperator)
+                .build();
+    }
+
+    @Bean
+    public Step interestJobStep(JobRepository jobRepository, JobOperator jobOperator, @Qualifier("interestJob") Job interestJob) {
+        return new StepBuilder("interestJobStep", jobRepository)
+                .job(interestJob)
+                .operator(jobOperator)
+                .build();
+    }
+
+    @Bean
+    public Step statementJobStep(JobRepository jobRepository, JobOperator jobOperator, @Qualifier("statementJob") Job statementJob) {
+        return new StepBuilder("statementJobStep", jobRepository)
+                .job(statementJob)
+                .operator(jobOperator)
+                .build();
+    }
+
+    // 2. Envolvemos cada JobStep en un Flujo (Flow)
+    @Bean
+    public Flow transactionFlow(Step transactionJobStep) {
+        return new FlowBuilder<Flow>("transactionFlow").start(transactionJobStep).build();
+    }
+
+    @Bean
+    public Flow interestFlow(Step interestJobStep) {
+        return new FlowBuilder<Flow>("interestFlow").start(interestJobStep).build();
+    }
+
+    @Bean
+    public Flow statementFlow(Step statementJobStep) {
+        return new FlowBuilder<Flow>("statementFlow").start(statementJobStep).build();
+    }
+
+    // 3. El Job Maestro que divide la ejecución usando tus 3 hilos paralelos
+    @Bean
+    public Job masterJob(JobRepository jobRepository, TaskExecutor taskExecutor, 
+                         Flow transactionFlow, Flow interestFlow, Flow statementFlow) {
+        return new JobBuilder("masterJob", jobRepository)
+                .start(transactionFlow)
+                .split(taskExecutor) // Aquí inyectamos el multi-threading a nivel de Jobs
+                .add(interestFlow, statementFlow) // Agregamos los otros dos flujos para que arranquen al mismo tiempo
+                .end()
+                .build();
     }
 
 }

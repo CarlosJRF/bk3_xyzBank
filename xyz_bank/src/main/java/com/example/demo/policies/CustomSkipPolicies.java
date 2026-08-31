@@ -5,6 +5,10 @@ import org.springframework.batch.core.step.skip.SkipPolicy;
 import org.springframework.batch.infrastructure.item.file.FlatFileParseException;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.BindException;
+import org.springframework.dao.DataIntegrityViolationException;
+import java.sql.BatchUpdateException;
+
+
 
 @Component
 public class CustomSkipPolicies implements SkipPolicy {
@@ -20,7 +24,11 @@ public class CustomSkipPolicies implements SkipPolicy {
         }
 
         // Permitimos saltar errores de lectura, matemáticas y de conversión (BindException)
-        if (t instanceof FlatFileParseException || t instanceof NumberFormatException || t instanceof BindException) {
+        if (t instanceof FlatFileParseException || 
+            t instanceof NumberFormatException || 
+            t instanceof org.springframework.validation.BindException ||
+            t instanceof DataIntegrityViolationException ||
+            t instanceof java.sql.BatchUpdateException) {
             return true; 
         }
         

@@ -18,6 +18,10 @@ public class InterestProcessor implements ItemProcessor<AccountDTO, AccountDTO>{
 
     @Override
     public AccountDTO process(AccountDTO account) throws Exception {
+        if (account.getBalance() == null) {
+            return null; // Descarta la cuenta si no tiene saldo válido
+        }
+        
         BigDecimal currentBalance = account.getBalance();
 
         //Asignacion de la tasa utilizando switch
