@@ -24,6 +24,7 @@ import org.springframework.core.convert.support.DefaultConversionService;
 import org.springframework.core.io.Resource;
 import org.springframework.transaction.PlatformTransactionManager;
 import java.lang.Exception;
+import java.math.BigDecimal;
 
 import com.example.demo.DTOs.AccountDTO;
 import com.example.demo.DTOs.StatementDTO;
@@ -33,6 +34,10 @@ import com.example.demo.policies.CustomSkipPolicies;
 import com.example.demo.processor.InterestProcessor;
 import com.example.demo.processor.StatementProcessor;
 import com.example.demo.processor.TransactionProcessor;
+
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import org.springframework.core.convert.converter.Converter;
 
 
 @Configuration
@@ -65,9 +70,7 @@ public class BatchConfig {
         BeanWrapperFieldSetMapper<TransactionDTO> fieldSetMapper = new BeanWrapperFieldSetMapper<>();
         fieldSetMapper.setTargetType(TransactionDTO.class);
 
-        DefaultConversionService conversionService = new DefaultConversionService();
-        conversionService.addConverter(String.class, LocalDate.class, LocalDate::parse);
-        fieldSetMapper.setConversionService(conversionService);
+        fieldSetMapper.setConversionService(createConversionService());
 
         DefaultLineMapper<TransactionDTO> lineMapper = new DefaultLineMapper<>();
         lineMapper.setLineTokenizer(tokenizer);
@@ -130,6 +133,8 @@ public class BatchConfig {
                 .start(statementStep)
                 .build();
     }
+
+
     /*Componentes para la lectura y escritura del trabajo de calculo de interes de las cuentas*/
 
     
@@ -140,6 +145,8 @@ public class BatchConfig {
 
         BeanWrapperFieldSetMapper<AccountDTO> fieldSetMapper = new BeanWrapperFieldSetMapper<>();
         fieldSetMapper.setTargetType(AccountDTO.class);
+        fieldSetMapper.setConversionService(createConversionService());
+
 
         DefaultLineMapper<AccountDTO> lineMapper = new DefaultLineMapper<>();
         lineMapper.setLineTokenizer(tokenizer);
@@ -186,11 +193,27 @@ public class BatchConfig {
 
         BeanWrapperFieldSetMapper<StatementDTO> fieldSetMapper = new BeanWrapperFieldSetMapper<>();
         fieldSetMapper.setTargetType(StatementDTO.class);
+        fieldSetMapper.setConversionService(createConversionService());
 
-        // Conversor de Fechas de String (CSV) a LocalDate (DTO)
         DefaultConversionService conversionService = new DefaultConversionService();
-        conversionService.addConverter(String.class, LocalDate.class, LocalDate::parse);
-        fieldSetMapper.setConversionService(conversionService);
+        conversionService.addConverter(String.class, LocalDate.class, new Converter<String, LocalDate>() {
+        @Override
+        public LocalDate convert(String source) {
+                // Lista de formatos identificados en el log de errores
+                String[] formatos = {"yyyy-MM-dd", "dd/MM/yyyy", "dd-MM-yyyy", "yyyy/MM/dd"};
+                
+                for (String formato : formatos) {
+                try {
+                        return LocalDate.parse(source, DateTimeFormatter.ofPattern(formato));
+                } catch (DateTimeParseException e) {
+                        // Continúa con el siguiente formato de la lista si este falla
+                }
+                }
+                // Si ninguno coincide, lanza excepción para que Spring Batch lo cuente como un Skip válido
+                throw new IllegalArgumentException("Formato de fecha no soportado: " + source);
+        }
+        });
+fieldSetMapper.setConversionService(conversionService);
 
         DefaultLineMapper<StatementDTO> lineMapper = new DefaultLineMapper<>();
         lineMapper.setLineTokenizer(tokenizer);
@@ -225,6 +248,48 @@ public class BatchConfig {
                 .processor(statementProcessor)
                 .writer(statementItemWriter)
                 .build();
+    }
+
+    // Método centralizado para manejar datos sucios en todos los CSV
+    private DefaultConversionService createConversionService() {
+        DefaultConversionService conversionService = new DefaultConversionService();
+        
+        // 1. Reparador de Fechas
+        conversionService.addConverter(String.class, LocalDate.class, new Converter<String, LocalDate>() {
+            @Override
+            public LocalDate convert(String source) {
+                if (source == null || source.trim().isEmpty()) return null;
+                String[] formatos = {"yyyy-MM-dd", "dd/MM/yyyy", "dd-MM-yyyy", "yyyy/MM/dd"};
+                for (String formato : formatos) {
+                    try {
+                        return LocalDate.parse(source.trim(), DateTimeFormatter.ofPattern(formato));
+                    } catch (Exception e) {
+                        // Ignora el error y prueba el siguiente formato
+                    }
+                }
+                throw new IllegalArgumentException("Fecha no procesable: " + source);
+            }
+        });
+
+        // 2. Reparador de Montos Enteros (transacciones vacías)
+        conversionService.addConverter(String.class, Integer.class, new Converter<String, Integer>() {
+            @Override
+            public Integer convert(String source) {
+                if (source == null || source.trim().isEmpty()) return 0;
+                return Integer.parseInt(source.trim());
+            }
+        });
+
+        // 3. Reparador de Saldos Decimales (cuentas vacías)
+        conversionService.addConverter(String.class, BigDecimal.class, new Converter<String, BigDecimal>() {
+            @Override
+            public BigDecimal convert(String source) {
+                if (source == null || source.trim().isEmpty()) return BigDecimal.ZERO;
+                return new BigDecimal(source.trim());
+            }
+        });
+
+        return conversionService;
     }
 
 }
